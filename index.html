@@ -27,6 +27,9 @@ header h1{flex:1;font-size:21px;font-weight:500;margin:0 0 0 8px}
 .k.a{color:var(--accent)}.k.eq{background:var(--accent);color:#fff;border-color:transparent}.k:active{filter:brightness(.88)}
 .sci .k{height:46px;font-size:24px}
 .k,.ib{touch-action:manipulation}
+.sheet{max-height:90%;overflow-y:auto}
+select{font-size:16px;padding:7px 8px;border-radius:8px;border:1px solid rgba(128,128,128,.4);background:var(--key);color:var(--text);font-family:inherit}
+input[type=range]{accent-color:var(--accent)}
 .ov{position:absolute;inset:0;background:var(--bg);transform:translateX(100%);transition:transform .22s;display:flex;flex-direction:column;z-index:20}.ov.on{transform:none}
 .list{flex:1;overflow-y:auto;padding:8px}
 .it{background:var(--key);border-radius:8px;padding:10px 14px;margin-bottom:8px;text-align:right}
@@ -77,7 +80,8 @@ input[type=color]{width:56px;height:34px;border:0;padding:0;background:none}
  <div class="row"><span>Màu phím</span><input type="color" id="c_key"></div>
  <div class="row"><span>Màu nền</span><input type="color" id="c_bg"></div>
  <div class="row"><span>Màu chữ</span><input type="color" id="c_text"></div>
- <div class="row"><span>Rung khi chạm phím</span><input type="checkbox" id="hapOn" style="width:24px;height:24px"></div>
+ <div class="row"><span>Âm thanh phím</span><select id="sndSel"><option value="tach">Tách</option><option value="bip">Bíp</option><option value="go">Gõ phím</option><option value="giot">Giọt nước</option><option value="pop">Pop</option><option value="off">Tắt tiếng</option></select></div>
+ <div class="row"><span>Âm lượng</span><input type="range" id="vol" min="0" max="100" step="5" style="width:52%"></div>
  <div class="pre" id="pre"></div><button class="done" id="sDone">Xong</button></div>
 <div class="toast" id="toast"></div>
 </div>
@@ -183,12 +187,25 @@ K.forEach(function(k){$("c_"+k).oninput=function(){var t={};K.forEach(function(j
 PRE.forEach(function(p){var d=document.createElement("div");d.className="sw";d.style.background="linear-gradient(135deg,"+p.head+" 50%,"+p.accent+" 50%)";d.onclick=function(){apply(p,true)};$("pre").appendChild(d)});
 $("mReset").onclick=function(){closeAll();try{localStorage.removeItem("mt-theme")}catch(e){}apply(DEF,false);toast("Đã đặt lại màu mặc định")};
 var sv=null;try{sv=JSON.parse(localStorage.getItem("mt-theme"))}catch(e){}apply(sv&&sv.head?sv:DEF,false);
-var hapOn=true;try{hapOn=localStorage.getItem("mt-hap")!=="0"}catch(e){}
-$("hapOn").checked=hapOn;
-$("hapOn").onchange=function(){hapOn=this.checked;try{localStorage.setItem("mt-hap",hapOn?"1":"0")}catch(e){}if(hapOn)buzz()};
-var hapL=document.createElement("label");hapL.style.cssText="position:fixed;left:-99px;top:-99px;opacity:0;pointer-events:none";hapL.innerHTML='<input type="checkbox" switch>';document.body.appendChild(hapL);
-function buzz(){if(!hapOn)return;try{if(navigator.vibrate){navigator.vibrate(12);return}}catch(e){}try{hapL.click()}catch(e){}}
-document.addEventListener("click",function(e){if(e.target.closest&&e.target.closest(".k,.ib,.it,.sw"))buzz()});
+var snd="tach",vol=60;
+try{snd=localStorage.getItem("mt-snd")||"tach";var vv=localStorage.getItem("mt-vol");if(vv!==null)vol=+vv}catch(e){}
+$("sndSel").value=snd;$("vol").value=vol;
+var AC=null;
+function ctx(){if(!AC){var C=window.AudioContext||window.webkitAudioContext;if(!C)return null;AC=new C()}if(AC.state==="suspended")AC.resume();return AC}
+function env(c,peak,dur,t){var g=c.createGain();g.gain.setValueAtTime(Math.max(peak,.0002),t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);g.connect(c.destination);return g}
+function osc(c,type,f1,f2,peak,dur,t){var o=c.createOscillator();o.type=type;o.frequency.setValueAtTime(f1,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+dur);o.connect(env(c,peak,dur,t));o.start(t);o.stop(t+dur+.02)}
+var SND={
+ tach:function(c,v,t){var n=Math.floor(c.sampleRate*.04),b=c.createBuffer(1,n,c.sampleRate),d=b.getChannelData(0);for(var i=0;i<n;i++)d[i]=Math.random()*2-1;var s=c.createBufferSource();s.buffer=b;var f=c.createBiquadFilter();f.type="bandpass";f.frequency.value=2800;f.Q.value=1.2;s.connect(f);f.connect(env(c,v*1.3,.04,t));s.start(t)},
+ bip:function(c,v,t){osc(c,"sine",880,0,v*.6,.09,t)},
+ go:function(c,v,t){osc(c,"triangle",200,90,v*1.0,.08,t)},
+ giot:function(c,v,t){osc(c,"sine",1300,500,v*.7,.13,t)},
+ pop:function(c,v,t){osc(c,"sine",520,160,v*.9,.07,t)}
+};
+function beep(){if(snd==="off"||vol<=0)return;var c=ctx();if(!c)return;var f=SND[snd];if(f)f(c,vol/100,c.currentTime)}
+$("sndSel").onchange=function(){snd=this.value;try{localStorage.setItem("mt-snd",snd)}catch(e){}beep()};
+$("vol").onchange=function(){vol=+this.value;try{localStorage.setItem("mt-vol",vol)}catch(e){}beep()};
+$("vol").oninput=function(){vol=+this.value};
+document.addEventListener("click",function(e){if(e.target.closest&&e.target.closest(".k,.ib,.it,.sw"))beep()});
 render();
 if("serviceWorker"in navigator&&/^https?:/.test(location.protocol)){navigator.serviceWorker.register("sw.js").catch(function(){})}
 </script></body></html>
